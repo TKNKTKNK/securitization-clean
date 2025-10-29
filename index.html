@@ -5,194 +5,109 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>証券化マスター</title>
 
-  <!-- React / ReactDOM -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
-  <!-- TailwindCSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <style>
-    /* iOS フォーカス時のズーム対策 (フォーム未使用だが保険) */
-    input, button { font-size: 16px; }
-  </style>
 </head>
 <body class="bg-white text-black">
   <div id="root" class="mx-auto max-w-3xl px-4 py-5"></div>
 
   <script>
-  // ========== データの読み込み ==========
-  // ルート直下の /2024.json を優先ロード（なければサンプル）
-  async function loadQuestions() {
-    try {
-      const res = await fetch("/2024.json", { cache: "no-store" });
-      if (!res.ok) throw new Error("404");
-      const all = await res.json();
+  const YEARS = [2024, 2023];
+  const YEAR_KEY = "securitization-year-v1";
 
-      // 想定フォーマット：
-      // [{ id, year, sectionCode, section, type, stem, choices:[{id,text,isTrue,explain},...] }, ...]
-      if (Array.isArray(all) && all.length) return all;
-      throw new Error("format");
-    } catch (e) {
-      // フォールバック（最小サンプル）
-      return [{
-        id:"2024-AM-103-01", year:2024, sectionCode:"103", section:"103 基礎", type:"A",
-        stem:"（デモ）各選択肢に○×を付けてください。",
-        choices:[
-          {id:"ア",text:"リスク要因の洗い出しは重要である。",isTrue:true,  explain:"要点：リスク把握→管理"},
-          {id:"イ",text:"リスクが高いほど要求収益率は低下する。",isTrue:false, explain:"“低下”ではなく上昇"},
-          {id:"ウ",text:"予防保全はLCCに有利な場合がある。",isTrue:true,  explain:"長期コスト面"},
-          {id:"エ",text:"真正売買は会計と無関係である。",isTrue:false, explain:"整合の検討は必要"}
-        ]
-      }];
-    }
-  }
-
-  // ========== ローカル保存 ==========
-  const LS_KEY = "securitization-progress-v1";
-  const saveState = (s) => localStorage.setItem(LS_KEY, JSON.stringify(s));
-  const loadState = () => {
-    try { return JSON.parse(localStorage.getItem(LS_KEY) || "null"); }
+  const LS_KEY = (year)=>`securitization-progress-v1:${year}`;
+  const saveState = (y,s)=>localStorage.setItem(LS_KEY(y), JSON.stringify(s));
+  const loadState = (y)=>{
+    try { return JSON.parse(localStorage.getItem(LS_KEY(y))||"null"); }
     catch { return null; }
   };
 
-  // ========== UI ==========
+  async function tryFetchJson(path){
+    try{
+      const res = await fetch(path, { cache:"no-store" });
+      if(!res.ok) throw new Error(res.status);
+      return await res.json();
+    }catch{ throw new Error("fetch-failed"); }
+  }
+
+  async function loadQuestions(year){
+    const data = await tryFetchJson(`/${year}.json`);
+    if(!Array.isArray(data) || !data.length) throw new Error("format");
+    return data;
+  }
+
   const h = React.createElement;
+  function btn(label,onClick,disabled=false){
+    const cls="px-4 py-2 border rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-40";
+    return h("button",{className:cls,onClick,disabled},label);
+  }
+  function scrollTop(){ window.scrollTo({top:0,behavior:"smooth"}); }
 
-  function App() {
-    const [all, setAll] = React.useState(null);
-    const [i, setI]   = React.useState(0);   // 問題 index
-    const [k, setK]   = React.useState(0);   // 選択肢 index（1つずつ表示）
-    const [show, setShow] = React.useState(false); // 解説表示
-    const [mark, setMark] = React.useState(null);  // ユーザ入力 "○" or "×"
+  function App(){
+    const savedYear = Number(localStorage.getItem(YEAR_KEY)) || YEARS[0];
+    const [year,setYear]=React.useState(savedYear);
+    const [all,setAll]=React.useState(null);
+    const [i,setI]=React.useState(0);
+    const [k,setK]=React.useState(0);
+    const [show,setShow]=React.useState(false);
+    const [err,setErr]=React.useState("");
 
-    // 復元
-    React.useEffect(() => {
-      loadQuestions().then(qs => {
-        setAll(qs);
-        const st = loadState();
-        if (st && st.totalId === makeTotalId(qs)) {
-          setI(st.i ?? 0);
-          setK(st.k ?? 0);
-        }
-      });
-    }, []);
+    React.useEffect(()=>{
+      localStorage.setItem(YEAR_KEY,year);
+      setErr("");setAll(null);setI(0);setK(0);setShow(false);
+      loadQuestions(year)
+        .then(q=>{setAll(q);})
+        .catch(()=>setErr(`/${year}.json が見つかりません`));
+    },[year]);
 
-    // 進捗保存
-    React.useEffect(() => {
-      if (!all) return;
-      saveState({ i, k, totalId: makeTotalId(all) });
-    }, [all, i, k]);
+    if(err) return h("div",{className:"p-5 text-red-600"},err);
+    if(!all) return h("div",{className:"p-5"},"読み込み中...");
 
-    if (!all) {
-      return sectionBox(
-        h("div",{className:"text-base"}, "読み込み中…"),
-        h("div",{className:"text-sm text-neutral-500 mt-2"},
-          "（/2024.json を優先。無ければデモ問題で表示します）")
-      );
+    const q=all[i], c=q.choices[k];
+
+    const yearSel=h("select",{value:year,onChange:e=>setYear(Number(e.target.value)),
+      className:"border rounded-lg px-2 py-1 bg-white"},
+      YEARS.map(y=>h("option",{key:y,value:y},y))
+    );
+
+    function next(){ setShow(false); setK(k+1<q.choices.length?k+1:0);
+      if(k+1>=q.choices.length) setI((i+1)%all.length);
+      scrollTop();
     }
-
-    const q = all[i];
-    const c = q.choices[k];
-
-    // 正誤判定
-    const judge = (user) => {
-      setMark(user);
-      setShow(true);
-    };
-
-    // 次へ（自動進行：選択肢が終われば次の問題へ）
-    const next = () => {
-      setShow(false);
-      setMark(null);
-      if (k < q.choices.length - 1) setK(k + 1);
-      else {
-        setK(0);
-        setI((i + 1) % all.length);
-      }
+    function back(){ setShow(false);
+      if(k>0) setK(k-1);
+      else{const pi=(i-1+all.length)%all.length; setI(pi); setK(all[pi].choices.length-1);}
       scrollTop();
-    };
+    }
+    function judge(ans){ setShow(true); }
 
-    // 戻る可
-    const back = () => {
-      setShow(false); setMark(null);
-      if (k > 0) setK(k - 1);
-      else {
-        const prevI = (i - 1 + all.length) % all.length;
-        setI(prevI);
-        setK(all[prevI].choices.length - 1);
-      }
-      scrollTop();
-    };
-
-    const header = h("div",{className:"flex items-center justify-between mb-3"},
-      h("div",{className:"text-xs text-neutral-500"},
-        `${q.year} / ${q.section} / A型 　問題 ${i+1}/${all.length}　選択肢 ${k+1}/${q.choices.length}`
-      ),
-      h("div",{className:"flex gap-2"},
-        btn("戻る", back, "gray"),
-        btn("次へ", next, "gray")
-      )
+    const feedback=show && h("div",{className:"mt-3 border p-3 rounded-xl"},
+      h("div",{className:c.isTrue?"text-green-600":"text-red-600"},
+        `正解：${c.isTrue?"○（正しい）":"×（誤り）"}`),
+      c.explain && h("p",{className:"mt-1 text-sm text-neutral-700"},c.explain),
+      btn("次へ",next)
     );
 
-    const stem = h("div",{className:"text-[18px] leading-relaxed mb-4"}, q.stem);
-    const choice = h("div",{className:"text-[18px]"},
-      h("span",{className:"font-semibold mr-1"}, `${c.id}.`), c.text
-    );
-
-    // 判定・解説
-    const ans = c.isTrue ? "○" : "×";
-    const judgeColor = c.isTrue ? "text-green-600" : "text-red-600";
-
-    const feedback = show && h("div",{className:"mt-4 border rounded-xl p-3"},
-      h("div",{className:"text-xs text-neutral-500 mb-1"},"解説"),
-      h("div",{className:judgeColor}, `正解：${ans}（${c.isTrue ? "正しい" : "誤り"}）`),
-      c.explain && h("p",{className:"mt-1"},
-        h("strong",{className:"text-red-600"},"注意："), " ", c.explain
-      ),
-      h("div",{className:"text-right mt-2"},
-        btn("閉じる（次へ）", next, "gray")
-      )
-    );
-
-    return sectionBox(
-      header,
-      stem,
+    return h("div",{className:"p-5"},
+      h("div",{className:"flex gap-3 mb-4 items-center"},h("span","年度："),yearSel),
+      h("div",{className:"text-sm text-neutral-500 mb-2"},`${q.section} / ${i+1}/${all.length}`),
+      h("div",{className:"text-[18px] mb-4"},q.stem),
       h("div",{className:"border rounded-2xl p-4"},
-        h("div",{className:"text-xs text-neutral-500 mb-2"}, `選択肢 ${k+1}/${q.choices.length}`),
-        choice,
-        h("div",{className:"flex gap-2 mt-4"},
-          btn("○ 正しい", ()=>judge("○"), "gray", show),
-          btn("× 誤り",   ()=>judge("×"), "gray", show)
+        h("div",{className:"text-[18px]"},`${c.id}. ${c.text}`),
+        h("div",{className:"flex gap-2 mt-3"},
+          btn("○ 正しい",()=>judge(true),show),
+          btn("× 誤り",()=>judge(false),show)
         ),
         feedback
+      ),
+      h("div",{className:"flex gap-2 mt-4"},
+        btn("戻る",back),btn("次へ",next)
       )
     );
   }
 
-  // ========== 小さなUIヘルパ ==========
-  function makeTotalId(all){ return `${all.length}:${all[0]?.year || ""}`; }
-  function scrollTop(){ try{ window.scrollTo({top:0,behavior:"smooth"});}catch{} }
-
-  function btn(label, onClick, tone="gray", disabled=false){
-    const cls =
-      "px-4 py-2 rounded-lg border shadow-sm text-sm " +
-      (tone==="gray" ? "bg-gray-100 border-gray-300 hover:bg-gray-200"
-                     : "bg-white border-gray-300") +
-      (disabled ? " opacity-50 pointer-events-none" : "");
-    return React.createElement("button",{className:cls,onClick}, label);
-  }
-
-  function sectionBox(...children){
-    return React.createElement(
-      "div",
-      {className:"rounded-2xl border p-5 bg-white"},
-      ...children
-    );
-  }
-
-  // ========== Mount ==========
-  ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+  ReactDOM.createRoot(document.getElementById("root")).render(h(App));
   </script>
 </body>
 </html>
