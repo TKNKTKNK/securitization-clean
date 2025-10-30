@@ -7,117 +7,28 @@
   <meta name="robots" content="noindex, nofollow" />
   <title>証券化マスター</title>
 
-  <!-- React -->
+  <!-- React / ReactDOM -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-  <!-- Tailwind CSS -->
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-
   <style>
-    body {
-      background-color: #ffffff;
-      color: #111;
-      -webkit-font-smoothing: antialiased;
-      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "Noto Sans JP", sans-serif;
-    }
-    button {
-      background: #f3f3f3;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      padding: 6px 14px;
-      margin: 4px;
-    }
-    button:hover { background: #e5e5e5; }
-    .choice-btn {
-      font-size: 18px;
-      width: 100%;
-      text-align: left;
-      padding: 10px 14px;
-      margin-bottom: 6px;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      background: #fafafa;
-    }
-    .choice-btn.correct { background: #d1fad1; }
-    .choice-btn.wrong { background: #fdd; }
+    html,body{background:#fff;color:#000}
+    /* 読みやすさ */
+    .prose p{margin:0 0 .6rem; line-height:1.9}
+    .qbox{border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#fff}
+    .btn{border-radius:12px;padding:.75rem 1rem;border:1px solid #d1d5db;background:#f3f4f6}
+    .btn:active{transform:translateY(1px)}
+    .choice{border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;background:#fff}
+    .choice + .choice{margin-top:.75rem}
+    .badge{font-size:.75rem;padding:.15rem .5rem;border-radius:6px;background:#eef2ff;border:1px solid #c7d2fe}
+    .kbd{font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px}
   </style>
-
-  <script>
-  // —— 日本語テキスト整形関数（PDFの崩れ修正）——
-  function normalizeJP(s){
-    if(!s) return "";
-    let t = s;
-    t = t.replace(/\u3000/g, " ");            // 全角→半角スペース
-    t = t.replace(/\s*\n+\s*/g, " ");         // 改行→スペース
-    t = t.replace(/\s{2,}/g, " ");            // 連続スペース→1つ
-    t = t.replace(/-\s+/g, "");               // 行末ハイフン除去
-    t = t.replace(/・\s+/g, "・");
-    t = t.replace(/，/g, "、").replace(/．/g, "。");
-    t = t.replace(/（\d+）/g, "");
-    t = t.replace(/\bP(?:age)?\s*\d+\b/ig, "");
-    t = t.replace(/\s*第?\d+問\s*/g, " ");
-    return t.trim();
-  }
-  </script>
 </head>
-
-<body class="p-4">
-  <div id="root"></div>
-
-  <script type="module">
-    const { useState, useEffect } = React;
-
-    function App(){
-      const [data,setData] = useState([]);
-      const [idx,setIdx] = useState(0);
-      const [showAnswer,setShowAnswer] = useState(false);
-      const [selected,setSelected] = useState(null);
-
-      useEffect(()=>{
-        fetch("./2024.json?v=clean2024")
-          .then(r=>r.json())
-          .then(setData)
-          .catch(()=>alert("データの読み込みに失敗しました"));
-      },[]);
-
-      if(data.length===0) return React.createElement("div", {className:"text-center mt-20"}, "読み込み中…");
-
-      const q = data[idx];
-
-      function handleChoice(c){
-        setSelected(c);
-        setShowAnswer(true);
-      }
-
-      function next(){
-        setShowAnswer(false);
-        setSelected(null);
-        setIdx((i)=>(i+1)%data.length);
-      }
-
-      return React.createElement("div",{className:"max-w-2xl mx-auto"},
-        React.createElement("h1",{className:"text-2xl font-bold mb-4 text-center"},"証券化マスター 2024"),
-        React.createElement("div",{className:"text-lg mb-3"},normalizeJP(q.stem)),
-        q.choices.map((c)=>
-          React.createElement("button",{
-            key:c.id,
-            onClick:()=>handleChoice(c),
-            className:`choice-btn ${showAnswer ? (c.isTrue?"correct": (selected===c?"wrong":"")) : ""}`
-          },`${c.id}. ${normalizeJP(c.text)}`)
-        ),
-        showAnswer && React.createElement("div",{className:"mt-4 p-3 border rounded-lg"},
-          React.createElement("p",{className:"text-sm text-red-600 mb-1"},"【解説】"),
-          React.createElement("p",{className:"text-base leading-relaxed"}, q.choices.filter(c=>c.isTrue).map(c=>`${c.id}: 正しい`).join("、 ") || "該当なし"),
-          React.createElement("p",{className:"text-sm mt-2 text-gray-600"},normalizeJP(q.explain||""))
-        ),
-        React.createElement("div",{className:"mt-6 text-center"},
-          React.createElement("button",{onClick:next},"次の問題へ ▶")
-        )
-      );
-    }
-
-    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
-  </script>
+<body class="bg-white text-black">
+  <div id="root" class="max-w-[900px] mx-auto p-4 sm:p-6"></div>
+  <!-- v パラメータを上げるとキャッシュ回避できます -->
+  <script type="module" src="./app.js?v=split_fix_003"></script>
 </body>
 </html>
