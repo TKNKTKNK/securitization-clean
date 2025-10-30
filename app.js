@@ -1,279 +1,246 @@
 /* =========================================================
-   証券化マスター – 最小実装
-   - 年度JSONを fetch して配列化
-   - q.type === 'tf-multi' を追加サポート
-   - A型（単一文 ○×）もサポート
-========================================================= */
+ *  設定
+ * ======================================================= */
+const YEARS = [2024, 2023, 2022, 2021, 2020];
+const JSON_URL = (y) => `./${y}.json?v=tfmulti_001`;
 
-const YEARS = [2024];      // 他の年を増やす時は [2020,2021,...,2024] のように追加
-const state = {
-  year: YEARS[YEARS.length - 1],
-  data: {},               // {2024: [{...q}, ...]}
-  idx: 0                  // 現在の問題index
-};
+/* =========================================================
+ *  小物
+ * ======================================================= */
+const h = React.createElement;
+const useState = React.useState;
+const useEffect = React.useEffect;
 
-// DOM
-const yearSelect = document.getElementById('yearSelect');
-const prevBtn    = document.getElementById('prevBtn');
-const nextBtn    = document.getElementById('nextBtn');
-const qbox       = document.getElementById('qbox');
-const counter    = document.getElementById('counter');
-
-// 年度セレクト初期化
-function initYearSelect() {
-  yearSelect.innerHTML = '';
-  YEARS.forEach(y => {
-    const opt = document.createElement('option');
-    opt.value = y;
-    opt.textContent = y;
-    yearSelect.appendChild(opt);
-  });
-  yearSelect.value = state.year;
-  yearSelect.onchange = async () => {
-    state.year = parseInt(yearSelect.value, 10);
-    state.idx = 0;
-    await ensureYearLoaded(state.year);
-    render();
-  };
+/* 判定表示用 */
+function Badge({ ok }) {
+  return h(
+    'span',
+    {
+      className:
+        'inline-block text-xs px-2 py-0.5 rounded ' +
+        (ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'),
+    },
+    ok ? '正しい' : '誤り'
+  );
 }
 
-async function ensureYearLoaded(y) {
-  if (state.data[y]) return;
-  const res = await fetch(`./${y}.json?v=${Date.now()}`);
-  if (!res.ok) throw new Error(`${y}.json が読み込めません`);
-  const json = await res.json();
-  // 互換: json.questions か 直接配列か
-  state.data[y] = Array.isArray(json) ? json : (json.questions || []);
+/* =========================================================
+ *  問題レンダラ：TF（単一の文章に対し〇×）
+ * ======================================================= */
+function RenderTF({ q, onAnswer, result }) {
+  return h(
+    'div',
+    { className: 'space-y-4' },
+    h('p', { className: 'text-lg leading-7 whitespace-pre-wrap' }, q.stem || ''),
+    h(
+      'div',
+      { className: 'border rounded p-3' },
+      h(
+        'label',
+        { className: 'mr-6 cursor-pointer' },
+        h('input', {
+          type: 'radio',
+          name: 'tf',
+          className: 'mr-1',
+          onChange: () => onAnswer(true),
+          checked: result?.user === true,
+        }),
+        '〇 正しい'
+      ),
+      h(
+        'label',
+        { className: 'cursor-pointer' },
+        h('input', {
+          type: 'radio',
+          name: 'tf',
+          className: 'mr-1',
+          onChange: () => onAnswer(false),
+          checked: result?.user === false,
+        }),
+        '× 誤り'
+      )
+    ),
+    result &&
+      h(
+        'div',
+        { className: 'mt-3 text-sm' },
+        h(Badge, { ok: result.correct }),
+        h(
+          'div',
+          { className: 'mt-2 text-gray-700 whitespace-pre-wrap' },
+          q.explain || ''
+        )
+      )
+  );
 }
 
-// ナビ
-prevBtn.onclick = () => {
-  if (!state.data[state.year]) return;
-  state.idx = Math.max(0, state.idx - 1);
-  render();
-};
-nextBtn.onclick = () => {
-  const arr = state.data[state.year] || [];
-  state.idx = Math.min(arr.length - 1, state.idx + 1);
-  render();
-};
+/* =========================================================
+ *  問題レンダラ：TF-MULTI（イ・ロ・ハ・ニ など各肢に〇×）
+ *  データ仕様は後ろの「サンプルJSON」を参照
+ * ======================================================= */
+function RenderTFMulti({ q, onAnswer, result }) {
+  return h(
+    'div',
+    { className: 'space-y-4' },
+    q.stem && h('p', { className: 'text-lg leading-7 whitespace-pre-wrap' }, q.stem),
+    h(
+      'div',
+      { className: 'space-y-3' },
+      q.items.map((item, idx) =>
+        h(
+          'div',
+          { key: idx, className: 'border rounded p-3' },
+          h(
+            'div',
+            { className: 'mb-2 font-medium whitespace-pre-wrap' },
+            `${item.label}．${item.text}`
+          ),
+          h(
+            'div',
+            null,
+            h(
+              'label',
+              { className: 'mr-6 cursor-pointer' },
+              h('input', {
+                type: 'radio',
+                name: `tfm_${idx}`,
+                className: 'mr-1',
+                onChange: () => onAnswer(idx, true),
+                checked: result?.user?.[idx] === true,
+              }),
+              '〇 正しい'
+            ),
+            h(
+              'label',
+              { className: 'cursor-pointer' },
+              h('input', {
+                type: 'radio',
+                name: `tfm_${idx}`,
+                className: 'mr-1',
+                onChange: () => onAnswer(idx, false),
+                checked: result?.user?.[idx] === false,
+              }),
+              '× 誤り'
+            ),
+            result &&
+              result.user?.[idx] != null &&
+              h(
+                'div',
+                { className: 'mt-2 text-sm' },
+                h(Badge, { ok: item.answer === result.user[idx] }),
+                item.explain &&
+                  h(
+                    'div',
+                    { className: 'mt-1 text-gray-700 whitespace-pre-wrap' },
+                    item.explain
+                  )
+              )
+          )
+        )
+      )
+    ),
+    /* 総合問がある場合は下に「いくつ誤りか」などを表示 */
+    q.summary &&
+      h(
+        'div',
+        { className: 'mt-2 text-sm text-gray-600 whitespace-pre-wrap' },
+        q.summary
+      )
+  );
+}
 
-// ここがポイント：type 判定の先頭で tf-multi を分岐
-function renderQuestion(container, q) {
-  container.innerHTML = '';
-  // 新モード：複数肢 ○×
-  if (q.type === 'tf-multi') {
-    renderTfMulti(container, q);
-    return;
+/* =========================================================
+ *  画面本体
+ * ======================================================= */
+function App() {
+  const [year, setYear] = useState(YEARS[0]);
+  const [qs, setQs] = useState([]);
+  const [idx, setIdx] = useState(0);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      setIdx(0);
+      setResult(null);
+      const res = await fetch(JSON_URL(year));
+      const data = await res.json();
+      setQs(Array.isArray(data) ? data : data.questions || []);
+    })();
+  }, [year]);
+
+  const q = qs[idx];
+
+  function handleAnswerTF(value) {
+    const ok = value === q.answer;
+    setResult({ correct: ok, user: value });
   }
-  // 既存A型：単一文○×（q.stem + q.answer:boolean）
-  renderTfSingle(container, q);
-}
 
-/* ========== 追加: 複数肢○×レンダリング & 採点 ========== */
-function renderTfMulti(container, q) {
-  // 見出し
-  const head = document.createElement('div');
-  head.className = 'text-sm text-gray-600 mb-2';
-  head.textContent = `年度 ${state.year}`;
-  container.appendChild(head);
+  function handleAnswerTFMulti(itemIdx, value) {
+    setResult((prev) => {
+      const user = prev?.user ? [...prev.user] : Array(q.items.length).fill(null);
+      user[itemIdx] = value;
 
-  // 問題文
-  const stem = document.createElement('div');
-  stem.className = 'mb-3 text-lg';
-  stem.textContent = q.stem || '次の記述（イ〜ニ）について、正誤を判定せよ。';
-  container.appendChild(stem);
-
-  // 小肢
-  const form = document.createElement('div');
-  form.className = 'space-y-3';
-  (q.items || []).forEach((it, idx) => {
-    const row = document.createElement('div');
-    row.className = 'rounded-lg border px-4 py-3';
-
-    const title = document.createElement('div');
-    title.className = 'font-semibold mb-2';
-    title.textContent = `${it.label}．${it.text}`;
-    row.appendChild(title);
-
-    const radios = document.createElement('div');
-    radios.className = 'flex gap-6 items-center';
-
-    const mkRadio = (name, value, labelText) => {
-      const lbl = document.createElement('label');
-      lbl.className = 'flex items-center gap-2 cursor-pointer';
-      const r = document.createElement('input');
-      r.type  = 'radio';
-      r.name  = name;
-      r.value = value; // "true"/"false"
-      lbl.appendChild(r);
-      const t = document.createElement('span');
-      t.textContent = labelText;
-      lbl.appendChild(t);
-      return lbl;
-    };
-    const name = `tfm_${idx}`;
-    radios.appendChild(mkRadio(name, 'true',  '○ 正しい'));
-    radios.appendChild(mkRadio(name, 'false', '× 誤り'));
-    row.appendChild(radios);
-
-    // 採点結果
-    const res = document.createElement('div');
-    res.className = 'mt-2 text-sm';
-    res.style.display = 'none';
-    row.appendChild(res);
-
-    form.appendChild(row);
-  });
-  container.appendChild(form);
-
-  // アクション
-  const actions = document.createElement('div');
-  actions.className = 'mt-4 flex gap-3';
-  const gradeBtn = document.createElement('button');
-  gradeBtn.className = 'px-4 py-2 rounded bg-blue-600 text-white';
-  gradeBtn.textContent = '採点';
-  actions.appendChild(gradeBtn);
-
-  const showBtn = document.createElement('button');
-  showBtn.className = 'px-4 py-2 rounded bg-gray-200';
-  showBtn.textContent = '解説を表示';
-  actions.appendChild(showBtn);
-
-  container.appendChild(actions);
-
-  // 採点
-  gradeBtn.onclick = () => {
-    let allAnswered = true;
-    let correct = 0;
-    [...form.children].forEach((row, i) => {
-      const sel = [...row.querySelectorAll(`input[name="tfm_${i}"]`)].find(r => r.checked);
-      const res = row.querySelector('div:last-child');
-      res.style.display = 'block';
-      if (!sel) {
-        allAnswered = false;
-        res.textContent = '未回答';
-        res.className = 'mt-2 text-sm text-amber-600';
-        return;
+      // すべて回答済なら総合判定
+      const done = user.every((v) => v !== null);
+      let correct = null;
+      if (done) {
+        correct = q.items.every((it, i) => it.answer === user[i]);
       }
-      const ok = (sel.value === 'true') === !!q.items[i].answer;
-      if (ok) {
-        correct++;
-        res.textContent = '正解';
-        res.className = 'mt-2 text-sm text-green-700';
-      } else {
-        res.textContent = '不正解';
-        res.className = 'mt-2 text-sm text-red-700';
-      }
+      return { user, correct };
     });
-    if (!allAnswered) return;
-    const sum = document.createElement('div');
-    sum.className = 'mt-3 text-sm';
-    sum.textContent = `結果：${correct}/${q.items.length} 正解`;
-    container.appendChild(sum);
-  };
-
-  // 解説
-  showBtn.onclick = () => {
-    [...form.children].forEach((row, i) => {
-      const ex = q.items[i].explain;
-      if (!ex) return;
-      let box = row.querySelector('.tfm-explain');
-      if (!box) {
-        box = document.createElement('div');
-        box.className = 'tfm-explain mt-2 text-[13px] text-gray-700 whitespace-pre-wrap';
-        row.appendChild(box);
-      }
-      box.innerHTML = `
-        <div class="px-3 py-2 bg-gray-50 border rounded">
-          <div><b>正解：</b>${q.items[i].answer ? '○ 正しい' : '× 誤り'}</div>
-          <div class="mt-1"><b>解説：</b>${ex}</div>
-        </div>`;
-    });
-    if (q.explain) {
-      let g = container.querySelector('.tfm-global');
-      if (!g) {
-        g = document.createElement('div');
-        g.className = 'tfm-global mt-4 text-[13px]';
-        container.appendChild(g);
-      }
-      g.innerHTML = `<div class="px-3 py-2 bg-yellow-50 border rounded text-gray-800">${q.explain}</div>`;
-    }
-  };
-}
-
-/* ========== A型（単一文 ○×） ========== */
-// 互換データ: { type:'tf', stem:'...', answer:true/false, explain? }
-function renderTfSingle(container, q) {
-  const stem = document.createElement('div');
-  stem.className = 'mb-3 text-lg';
-  stem.textContent = q.stem || '次の記述について、正誤を判定せよ。';
-  container.appendChild(stem);
-
-  const box = document.createElement('div');
-  box.className = 'rounded-lg border px-4 py-3';
-  box.innerHTML = `
-    <div class="mb-2">${q.text || ''}</div>
-    <label class="mr-6"><input type="radio" name="tf" value="true"> ○ 正しい</label>
-    <label><input type="radio" name="tf" value="false"> × 誤り</label>
-  `;
-  container.appendChild(box);
-
-  const actions = document.createElement('div');
-  actions.className = 'mt-4 flex gap-3';
-  const gradeBtn = document.createElement('button');
-  gradeBtn.className = 'px-4 py-2 rounded bg-blue-600 text-white';
-  gradeBtn.textContent = '採点';
-  actions.appendChild(gradeBtn);
-
-  const showBtn = document.createElement('button');
-  showBtn.className = 'px-4 py-2 rounded bg-gray-200';
-  showBtn.textContent = '解説を表示';
-  actions.appendChild(showBtn);
-  container.appendChild(actions);
-
-  const result = document.createElement('div');
-  result.className = 'mt-2 text-sm';
-  container.appendChild(result);
-
-  gradeBtn.onclick = () => {
-    const sel = container.querySelector('input[name="tf"]:checked');
-    if (!sel) {
-      result.textContent = '未回答';
-      result.className = 'mt-2 text-sm text-amber-600';
-      return;
-    }
-    const ok = (sel.value === 'true') === !!q.answer;
-    result.textContent = ok ? '正解' : '不正解';
-    result.className = 'mt-2 text-sm ' + (ok ? 'text-green-700' : 'text-red-700');
-  };
-
-  showBtn.onclick = () => {
-    if (!q.explain) return;
-    const ex = document.createElement('div');
-    ex.className = 'mt-2 text-[13px] px-3 py-2 bg-gray-50 border rounded';
-    ex.innerHTML = `<div><b>正解：</b>${q.answer ? '○ 正しい' : '× 誤り'}</div>
-                    <div class="mt-1"><b>解説：</b>${q.explain}</div>`;
-    container.appendChild(ex);
-  };
-}
-
-/* ========== 画面再描画 ========== */
-function render() {
-  const arr = state.data[state.year] || [];
-  if (!arr.length) {
-    qbox.innerHTML = '<div class="text-red-700">問題がありません</div>';
-    counter.textContent = '-/-';
-    return;
   }
-  state.idx = Math.min(Math.max(state.idx, 0), arr.length - 1);
-  counter.textContent = `${state.idx + 1}/${arr.length}`;
-  renderQuestion(qbox, arr[state.idx]);
+
+  function next() {
+    setResult(null);
+    setIdx((i) => (i + 1 < qs.length ? i + 1 : 0));
+  }
+  function prev() {
+    setResult(null);
+    setIdx((i) => (i - 1 >= 0 ? i - 1 : qs.length - 1));
+  }
+
+  return h(
+    'div',
+    { className: 'space-y-4' },
+    h('h1', { className: 'text-2xl font-bold' }, '証券化マスター 2020–2024 練習'),
+    h(
+      'div',
+      { className: 'flex items-center gap-3' },
+      h('label', null, '年度:'),
+      h(
+        'select',
+        {
+          className: 'border rounded px-2 py-1',
+          value: year,
+          onChange: (e) => setYear(Number(e.target.value)),
+        },
+        YEARS.map((y) => h('option', { key: y, value: y }, y))
+      ),
+      h('span', { className: 'text-sm text-gray-500' }, `${idx + 1}/${qs.length}`),
+      h(
+        'button',
+        { className: 'px-3 py-2 border rounded', onClick: prev },
+        '戻る'
+      ),
+      h(
+        'button',
+        { className: 'px-3 py-2 bg-blue-600 text-white rounded', onClick: next },
+        '次へ'
+      )
+    ),
+
+    h(
+      'div',
+      { className: 'mt-2 border rounded p-4' },
+      !q
+        ? h('div', null, '問題を読み込み中…')
+        : q.type === 'tf-multi'
+        ? h(RenderTFMulti, { q, onAnswer: handleAnswerTFMulti, result })
+        : // 既存の正誤1問
+          h(RenderTF, { q, onAnswer: handleAnswerTF, result })
+    )
+  );
 }
 
-/* ========== 起動 ========== */
-(async function boot() {
-  initYearSelect();
-  await ensureYearLoaded(state.year);
-  render();
-})();
+/* マウント */
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
