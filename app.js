@@ -9,23 +9,17 @@ const { useEffect, useMemo, useState, useRef } = React;
 
 const YEARS = [2024, 2023, 2022, 2021, 2020];
 
-// JSON 正式フォーマット例：
-// { id, sectionCode, section, question, choices:[{label:"ア", text:"...", correct:true}], explain }
-// 暫定（生テキスト）例：
-// { id, sectionCode, section, raw: "次の記述（ア〜エ）... ア. ... イ. ... ウ. ... エ. ...", explain? }
-// どちらでもロード可。raw があれば自動分割。
-
 /* ---------------- ユーティリティ ---------------- */
 
 const zenkakuDot = "[．・。\\.]"; // 全角/中点/句点
-const letterMarks = "(?:ア|イ|ウ|エ|オ|カ|キ|ク|ケ|コ|サ|シ|ス|セ|ソ|タ|チ|ツ|テ|ト)"; // 十分
+const letterMarks = "(?:ア|イ|ウ|エ|オ|カ|キ|ク|ケ|コ|サ|シ|ス|セ|ソ|タ|チ|ツ|テ|ト)";
 const kanjiMarks  = "(?:一|二|三|四|五|甲|乙|丙|丁)";
 
 const SPLIT_RE = new RegExp(
   `(?:^|\\s)(${letterMarks}|${kanjiMarks})\\s*${zenkakuDot}\\s*` , "g"
 );
 
-// 余分な「無断複写・転載を禁ず」「< >」などを除去
+// ノイズ除去
 function cleanNoise(str){
   if(!str) return "";
   let s = String(str)
@@ -41,26 +35,22 @@ function cleanNoise(str){
 function splitChoicesFromRaw(raw){
   const s = cleanNoise(raw);
 
-  // 「ア.」「イ．」「ウ。」…で分割
   const indices = [];
   let m;
   SPLIT_RE.lastIndex = 0;
   while((m = SPLIT_RE.exec(s))){
-    indices.push({ idx: m.index + (m[0].match(/\s$/) ? m[0].length-1 : m[0].length), mark:m[1]});
+    indices.push({ idx: m.index + m[0].length, mark:m[1]});
   }
   if(indices.length === 0){
-    // ①②③④ のパターンでも試す
     const alt = s.split(/(?=[①②③④⑤⑥⑦⑧⑨])/).filter(Boolean);
     if(alt.length >= 2){
       return alt.map((t,i)=>({label: "①②③④⑤⑥⑦⑧⑨".charAt(i), text:t.replace(/^[①②③④⑤⑥⑦⑧⑨]\s*/, "") }));
     }
-    // それも無ければ段落分割
     return s.split(/(?:(?:\r?\n){2,}|　{2,})/).filter(Boolean).map((t,i)=>({
       label: ["ア","イ","ウ","エ","オ","カ"][i]||`項${i+1}`, text:t.trim()
     }));
   }
 
-  // indices から実際のブロック切り出し
   const results = [];
   for(let i=0;i<indices.length;i++){
     const start = indices[i].idx;
@@ -72,14 +62,13 @@ function splitChoicesFromRaw(raw){
   return results;
 }
 
-// choices のテキストを読みやすく
 function toHtml(t){
   return cleanNoise(t)
     .replace(/\r?\n/g, "<br>")
     .replace(/(\s){2,}/g, "$1");
 }
 
-/* ---------------- ストア ---------------- */
+/* ---------------- ローカル状態 ---------------- */
 
 function useLocalState(key, initial){
   const [v, setV] = useState(()=>{
@@ -99,7 +88,6 @@ function App(){
   const [log, setLog] = useLocalState("log:"+year, {}); // id -> correct/incorrect
   const [loading, setLoading] = useState(false);
 
-  // 年が変わったら idx も切り替え
   useEffect(()=>{ setIdx(0); }, [year]);
 
   useEffect(()=>{
@@ -111,7 +99,6 @@ function App(){
         if(!r.ok) throw new Error("not found");
         const js = await r.json();
 
-        // どの形式でも、最終的に {id, question, choices[], explain?, answerKey?} に正規化
         const normalized = js.map((q, i)=>{
           const id = q.id || `${year}-${i+1}`;
           if(q.choices && q.choices.length){
@@ -124,7 +111,6 @@ function App(){
               answerKey: q.answerKey || null
             };
           }
-          // raw ベース
           const raw = q.raw || q.question || q.q || "";
           const head = String(raw).split(/(ア|一|甲)[．・。\.]/)[0] || (q.headline||"");
           const choices = splitChoicesFromRaw(raw);
@@ -132,7 +118,7 @@ function App(){
             id,
             section: q.section || q.sectionCode || "",
             question: cleanNoise(head || q.title || "次の記述（ア〜）について、正誤を判定せよ。"),
-            choices: choices.map(c => ({ label: c.label, text: cleanNoise(c.text), correct: undefined })), // 採点キー未連携
+            choices: choices.map(c => ({ label: c.label, text: cleanNoise(c.text), correct: undefined })),
             explain: q.explain || "",
             answerKey: q.answerKey || null
           };
@@ -155,40 +141,34 @@ function App(){
   function next(){ setIdx(i=> Math.min(i+1, Math.max(0, data.length-1))); }
   function prev(){ setIdx(i=> Math.max(0, i-1)); }
 
+  // ---- Toast ----
+  const [toast, setToastState] = useState("");
+  function showToast(msg, ms=900){
+    showToast._t && clearTimeout(showToast._t);
+    setToastState(msg);
+    showToast._t = setTimeout(()=> setToastState(""), ms);
+  }
+
   function judge(choiceIndex){
     if(!q) return;
     let isCorrect = false;
 
-    // 1) choices[].correct が入っていればそれを採用
     if(Array.isArray(q.choices) && typeof q.choices[choiceIndex]?.correct === "boolean"){
       isCorrect = !!q.choices[choiceIndex].correct;
-    }
-    // 2) answerKey に { ア:true, イ:false, ... }のように入っていればそれを採用
-    else if(q.answerKey && q.choices[choiceIndex]){
+    } else if(q.answerKey && q.choices[choiceIndex]){
       const lab = q.choices[choiceIndex].label;
       if(lab && lab in q.answerKey) isCorrect = !!q.answerKey[lab];
       else isCorrect = false;
-    }
-    // 3) キー不明時は「未連携」。とりあえず記録だけ付けて次へ
-    else{
-      setToast("この問題は採点キー未連携です（表示は整形済みなので学習は可能）", 1900);
+    } else {
       setLog(prev => ({ ...prev, [q.id]: null }));
+      showToast("この問題は採点キー未連携です（表示は整形済み）", 1800);
       next();
       return;
     }
 
     setLog(prev => ({ ...prev, [q.id]: isCorrect }));
-    setToast(isCorrect ? "⭕ 正解！" : "❌ 不正解", 700);
-    // すぐ進めたい人向け：自動で次へ
+    showToast(isCorrect ? "⭕ 正解！" : "❌ 不正解", 700);
     setTimeout(next, 250);
-  }
-
-  const [toast, setToast] = useState("");
-  const toRef = useRef(null);
-  function setToast(msg, ms=900){
-    setToast._t && clearTimeout(setToast._t);
-    setToast._t = setTimeout(()=> setToast(""), ms);
-    setToast(msg);
   }
 
   const progress = useMemo(()=>{
@@ -199,7 +179,6 @@ function App(){
   }, [data, log]);
 
   return e("div", {className:"space-y-4"},
-    // ヘッダー
     e("div", {className:"flex items-center justify-between gap-3"},
       e("div", {className:"flex items-center gap-2"},
         e("span", {className:"text-2xl font-bold"}, "証券化マスター "),
