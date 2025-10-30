@@ -1,208 +1,271 @@
-// app.js  —  設問レンダラ（tf-multi対応）
-
-// --------------- データ読み込み ---------------
-// 年度ファイルを必要に応じて増やしてください
-const DATA_FILES = {
-  "2024": "./2024.json?v=tfmulti_001",
-  "2023": "./2023.json?v=tfmulti_001",
-  "2022": "./2022.json?v=tfmulti_001",
-  "2021": "./2021.json?v=tfmulti_001",
-  "2020": "./2020.json?v=tfmulti_001",
-};
-
-// --------------- 状態 ---------------
-let state = {
+/* app.js — tf / tf-multi / mcq を一括サポート（各肢〇×付き） */
+const YEARS = ["2024","2023","2022","2021","2020"];
+const state = {
   year: "2024",
-  list: [],
   idx: 0,
-  answers: {},  // key = qid / iid
-  reveal: false
+  data: { questions: [] },
+  answers: {}, // key: questionId -> user selections
 };
 
-// --------------- ユーティリティ ---------------
-const $ = (sel) => document.querySelector(sel);
-const escape = (s="") => s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+const el = s => document.querySelector(s);
+const stage = el("#stage");
+const yearSel = el("#yearSel");
+const prevBtn = el("#prevBtn");
+const nextBtn = el("#nextBtn");
+const progressChip = el("#progressChip");
 
-// --------------- 初期化 ---------------
+/* --------------------------
+   起動
+---------------------------*/
 init();
 async function init(){
-  bindUI();
+  // 年度選択とボタン
+  yearSel.addEventListener("change", async () => {
+    state.year = yearSel.value;
+    state.idx = 0;
+    await loadYear(state.year);
+    render();
+  });
+  prevBtn.addEventListener("click", () => nav(-1));
+  nextBtn.addEventListener("click", () => nav(+1));
+
+  // デフォルト年をURL ?y=2021 などで指定可
+  const u = new URL(location.href);
+  const qy = u.searchParams.get("y");
+  if (qy && YEARS.includes(qy)) {
+    state.year = qy;
+    yearSel.value = qy;
+  }
+
   await loadYear(state.year);
   render();
 }
 
-function bindUI(){
-  $("#yearSel").addEventListener("change", async e=>{
-    state.year = e.target.value;
-    state.idx = 0; state.answers = {}; state.reveal = false;
-    await loadYear(state.year);
-    render();
-  });
-  $("#prevBtn").addEventListener("click", ()=>{ if(state.idx>0){ state.idx--; state.reveal=false; render(); }});
-  $("#nextBtn").addEventListener("click", ()=>{ if(state.idx < state.list.length-1){ state.idx++; state.reveal=false; render(); }});
-  $("#gradeBtn").addEventListener("click", ()=>{ state.reveal=true; render(); });
-  $("#expBtn").addEventListener("click", ()=>{
-    state.reveal = true;
-    const exp = $("#qWrap").querySelector(".js-explain");
-    if(exp) exp.classList.toggle("hidden");
-  });
+async function loadYear(year){
+  // 例: ./2021.json を取得
+  const url = `./${year}.json?v=clean-tfmulti-001`;
+  try{
+    const res = await fetch(url, {cache: "no-store"});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    state.data = normalizeDataset(json, year);
+    // 既存の解答は維持
+    progressChip.textContent = `${state.idx+1}/${state.data.questions.length||0}`;
+  }catch(e){
+    console.error(e);
+    state.data = {questions:[]};
+    stage.innerHTML = `
+      <div class="card">
+        <div class="text-red-600 font-semibold mb-2">データ読み込みエラー</div>
+        <div class="muted">「${year}.json」が見つからないか、形式が異なります。</div>
+      </div>`;
+  }
 }
 
-async function loadYear(y){
-  const url = DATA_FILES[y];
-  const res = await fetch(url);
-  if(!res.ok){ alert("データが読み込めません: "+y); return; }
-  const data = await res.json();
-  state.list = data.questions || [];
+function normalizeDataset(json, year){
+  const out = {year, questions:[]};
+  if (!json || !Array.isArray(json.questions)) return out;
+
+  for (const q of json.questions){
+    const id = q.id || `${year}-${String(out.questions.length+1).padStart(3,"0")}`;
+    const type = q.type || "tf"; // 既存の単一判定も許容
+    const base = {
+      id, type,
+      stem: q.stem || "",
+      explain: q.explain || "",
+    };
+
+    if (type === "tf-multi"){
+      // 各肢（イロハニ…）を正規化
+      base.items = (q.items || []).map((it, i) => ({
+        label: it.label || ["イ","ロ","ハ","ニ","ホ","ヘ","ト"][i] || String(i+1),
+        text: (it.text||"").trim(),
+        isTrue: !!it.isTrue
+      }));
+    }else if (type === "mcq"){
+      base.choices = (q.choices||[]).map(c => ({text:(c.text||"").trim(), isCorrect:!!c.isCorrect}));
+    }else{
+      base.isTrue = !!q.isTrue; // 単一〇×
+    }
+
+    out.questions.push(base);
+  }
+  return out;
 }
 
-// --------------- レンダリング ---------------
+/* --------------------------
+   画面レンダリング
+---------------------------*/
 function render(){
-  $("#progress").textContent = `${state.idx+1}/${state.list.length || 0}`;
-  const q = state.list[state.idx];
-  $("#qWrap").innerHTML = q ? renderQuestion(q) : `<p class="text-gray-500">この年度はまだ問題がありません。</p>`;
-  attachHandlers(q);
+  const qs = state.data.questions;
+  if (!qs.length){
+    stage.innerHTML = `
+      <div class="card">この年度のデータがありません。<br/><span class="muted">JSONに "questions": [...] が必要です。</span></div>`;
+    progressChip.textContent = `0/0`;
+    return;
+  }
+  const q = qs[state.idx];
+  progressChip.textContent = `${state.idx+1}/${qs.length}`;
+
+  // 先頭で type 分岐
+  if (q.type === "tf-multi") {
+    renderTfMulti(q);
+  } else if (q.type === "mcq") {
+    renderMcq(q);
+  } else {
+    renderTf(q);
+  }
 }
 
-function renderQuestion(q){
-  // tf-multi を最優先
-  if(q.type === "tf-multi") return renderTfMulti(q);
-  if(q.type === "tf")       return renderTF(q);
-  if(q.type === "mc")       return renderMC(q);
-  // fallback
-  return `<div class="text-sm text-gray-500">未対応の設問タイプです: ${escape(q.type||"")}</div>`;
+function nav(d){
+  const L = state.data.questions.length;
+  state.idx = Math.max(0, Math.min(L-1, state.idx + d));
+  render();
 }
 
-// --- A型（1文に対する○×）---
-function renderTF(q){
-  const key = `q:${q.id}`;
-  const picked = state.answers[key];
-  const show = state.reveal;
-  const isCorrect = show && (picked === String(q.answer));
-  return `
-    <div class="space-y-4">
-      <div class="badge">年度 ${escape(q.year||"")}</div>
-      <div class="text-lg font-medium">${escape(q.stem||"")}</div>
-      <div class="rounded border p-3 ${show? (isCorrect?'border-green-400 bg-green-50':'border-red-300 bg-red-50'):'border-gray-200'}">
-        ${radioTF(key, picked, show ? String(q.answer) : null)}
+/* 単一〇× */
+function renderTf(q){
+  const ans = state.answers[q.id] || null;
+  stage.innerHTML = `
+    <div class="card">
+      <div class="muted mb-1">年度 ${state.data.year} / 単一〇× 判定</div>
+      <div class="text-lg sm:text-xl font-semibold mb-2">${escapeHTML(q.stem)}</div>
+
+      <div class="my-3 flex gap-6">
+        <label class="opt"><input type="radio" name="tf" value="true" ${ans==="true"?"checked":""}>〇 正しい</label>
+        <label class="opt"><input type="radio" name="tf" value="false" ${ans==="false"?"checked":""}>× 誤り</label>
       </div>
-      ${explainBox(q)}
+
+      <div class="flex gap-3 mt-2">
+        <button class="btn" id="markBtn">採点</button>
+        <button class="btn-outline" id="expBtn">解説を表示</button>
+      </div>
+
+      <div id="resultBox" class="mt-3"></div>
+      <div id="explainBox" class="mt-3 muted hidden"></div>
     </div>
   `;
+
+  stage.querySelectorAll('input[name="tf"]').forEach(r =>
+    r.addEventListener("change", e => { state.answers[q.id] = e.target.value; })
+  );
+
+  stage.querySelector("#markBtn").addEventListener("click", () => {
+    const v = state.answers[q.id];
+    if (v==null){ alert("答えを選んでください"); return; }
+    const ok = String(q.isTrue) === v;
+    stage.querySelector("#resultBox").innerHTML =
+      ok ? `<div class="ok font-semibold">◎ 正解</div>` : `<div class="bad font-semibold">× 不正解</div>`;
+  });
+  stage.querySelector("#expBtn").addEventListener("click", () => {
+    const box = stage.querySelector("#explainBox");
+    box.classList.toggle("hidden");
+    box.innerHTML = `<div class="divider"></div><div class="mono whitespace-pre-wrap">${escapeHTML(q.explain||"（解説は準備中）")}</div>`;
+  });
 }
 
-// --- 4択（単一選択）---
-function renderMC(q){
-  const key = `q:${q.id}`;
-  const picked = state.answers[key];
-  const show = state.reveal;
-  const good = show ? q.answer : null;
-  return `
-    <div class="space-y-4">
-      <div class="badge">年度 ${escape(q.year||"")}</div>
-      <div class="text-lg font-medium">${escape(q.stem||"")}</div>
-      <div class="space-y-2">
-        ${q.choices.map((c,i)=>{
-          const v = String(i);
-          const ok = (good!==null && v===String(good));
-          const wrongPicked = (good!==null && v===String(picked) && v!==String(good));
-          return `
-            <label class="flex items-center gap-3 rounded border p-3
-              ${ ok ? 'border-green-500 bg-green-50'
-                  : wrongPicked ? 'border-red-400 bg-red-50'
-                  : 'border-gray-200'}">
-              <input type="radio" name="${key}" value="${v}" ${picked===v?'checked':''}
-               ${show?'disabled':''} class="accent-blue-600">
-              <span>${escape(c)}</span>
-            </label>`;
-        }).join("")}
-      </div>
-      ${explainBox(q)}
-    </div>
-  `;
-}
-
-// --- tf-multi（イ/ロ/ハ/ニ 各肢に○×）---
+/* 各肢〇×（イ・ロ・ハ・ニ…ごとに判定） */
 function renderTfMulti(q){
-  // q.items: [{label:'イ', text:'…', answer:true/false}, …]
-  return `
-    <div class="space-y-4">
-      <div class="flex items-center gap-2">
-        <span class="badge">年度 ${escape(q.year||"")}</span>
-        <span class="pill">各肢 ○× 判定</span>
+  const key = q.id;
+  const saved = state.answers[key] || {}; // { label -> "true"/"false" }
+  const itemsHTML = (q.items||[]).map((it,i)=>`
+    <div class="border rounded-md p-3 mb-3 bg-white">
+      <div class="font-semibold mb-1">${escapeHTML(it.label)}．</div>
+      <div class="mb-2 mono whitespace-pre-wrap">${escapeHTML(it.text)}</div>
+      <div class="flex gap-6">
+        <label class="opt"><input type="radio" name="tfm-${i}" value="true"  ${saved[it.label]==="true"?"checked":""}>〇 正しい</label>
+        <label class="opt"><input type="radio" name="tfm-${i}" value="false" ${saved[it.label]==="false"?"checked":""}>× 誤り</label>
       </div>
+      <div id="r-${i}" class="mt-2"></div>
+    </div>
+  `).join("");
 
-      ${q.stem ? `<div class="font-medium">${escape(q.stem)}</div>` : ""}
-
-      <div class="space-y-3">
-        ${q.items.map((it, idx)=>{
-          const key = `q:${q.id}:i:${idx}`;
-          const picked = state.answers[key];
-          const show = state.reveal;
-          const ok = show ? String(it.answer) : null;
-          // 色付け
-          let cls = 'border-gray-200';
-          if(show){
-            if(picked===String(it.answer)) cls = 'border-green-500 bg-green-50';
-            else cls = 'border-red-400 bg-red-50';
-          }
-          return `
-            <div class="rounded border p-3 ${cls}">
-              <div class="mb-1 font-semibold">${escape(it.label||['イ','ロ','ハ','ニ','ホ'][idx]||(`肢${idx+1}`))}．</div>
-              <div class="mb-2">${escape(it.text||"")}</div>
-              <div class="flex items-center gap-6">
-                ${radioTF(key, picked, ok)}
-              </div>
-            </div>`;
-        }).join("")}
+  stage.innerHTML = `
+    <div class="card">
+      <div class="muted mb-1">年度 ${state.data.year} / 各肢〇×</div>
+      <div class="text-lg sm:text-xl font-semibold mb-3">${escapeHTML(q.stem)}</div>
+      ${itemsHTML}
+      <div class="flex gap-3 mt-1">
+        <button class="btn" id="markBtn">採点</button>
+        <button class="btn-outline" id="expBtn">解説を表示</button>
       </div>
-
-      ${q.choices?.length ? `
-        <div class="mt-2 text-sm text-gray-700">
-          <div class="font-semibold mb-1">選択肢（個数問題などがある場合）</div>
-          <ul class="list-disc pl-6">
-            ${q.choices.map((c)=>`<li>${escape(c)}</li>`).join("")}
-          </ul>
-        </div>
-      ` : ""}
-
-      ${explainBox(q)}
+      <div id="explainBox" class="mt-3 muted hidden"></div>
     </div>
   `;
-}
 
-// ○×ラジオ
-function radioTF(name, picked, good){
-  const ro = (good!==null);
-  const mk = (val, label)=>`
-    <label class="inline-flex items-center gap-2 mr-6">
-      <input type="radio" name="${name}" value="${val}" ${picked===String(val)?'checked':''}
-        ${ro?'disabled':''} class="accent-blue-600">
-      <span>${label}</span>
-      ${ good!==null && String(val)===String(good) ? `<span class="text-green-600 text-xs">●</span>` : `` }
-    </label>`;
-  return mk(true, "○ 正しい") + mk(false, "× 誤り");
-}
-
-// 解説ボックス
-function explainBox(q){
-  return `
-    <details class="js-explain mt-2 border rounded p-3 bg-gray-50"${state.reveal?' open':''}>
-      <summary class="cursor-pointer select-none">解説</summary>
-      <div class="mt-2 whitespace-pre-wrap text-sm">${escape(q.explain||"（準備中）")}</div>
-    </details>`;
-}
-
-// --------------- イベント登録 ---------------
-function attachHandlers(q){
-  if(!q) return;
-  // ラジオを拾って state.answers に保存
-  $("#qWrap").querySelectorAll('input[type="radio"]').forEach(el=>{
-    el.addEventListener('change', (e)=>{
-      const nm = e.target.getAttribute('name');
-      const val = e.target.value;
-      state.answers[nm] = val;
-      // 採点結果を即フィードバックしたい場合はここで render()
+  // 保存
+  (q.items||[]).forEach((it, i)=>{
+    stage.querySelectorAll(`input[name="tfm-${i}"]`).forEach(r=>{
+      r.addEventListener("change", e=>{
+        const cur = state.answers[key] || {};
+        cur[it.label] = e.target.value; // "true"/"false"
+        state.answers[key] = cur;
+      });
     });
   });
+
+  // 採点
+  stage.querySelector("#markBtn").addEventListener("click", ()=>{
+    const cur = state.answers[key] || {};
+    (q.items||[]).forEach((it,i)=>{
+      const v = cur[it.label];
+      const ok = (String(it.isTrue) === v);
+      const tgt = stage.querySelector(`#r-${i}`);
+      tgt.innerHTML = v==null
+        ? `<div class="muted">（未回答）</div>`
+        : ok ? `<div class="ok font-semibold">◎ 正解</div>` : `<div class="bad font-semibold">× 不正解</div>`;
+    });
+  });
+
+  // 解説
+  stage.querySelector("#expBtn").addEventListener("click", ()=>{
+    const box = stage.querySelector("#explainBox");
+    box.classList.toggle("hidden");
+    box.innerHTML = `<div class="divider"></div><div class="mono whitespace-pre-wrap">${escapeHTML(q.explain||"（解説は準備中）")}</div>`;
+  });
 }
+
+/* 4択（必要あれば） */
+function renderMcq(q){
+  const key = q.id;
+  const saved = state.answers[key] || null;
+
+  const choicesHTML = (q.choices||[]).map((c,i)=>`
+    <label class="opt border rounded-md p-3 bg-white">
+      <input type="radio" name="mcq" value="${i}" ${String(saved)===String(i)?"checked":""}>
+      <span class="mono">${escapeHTML(c.text)}</span>
+    </label>
+  `).join("");
+
+  stage.innerHTML = `
+    <div class="card">
+      <div class="muted mb-1">年度 ${state.data.year} / 4択</div>
+      <div class="text-lg sm:text-xl font-semibold mb-2">${escapeHTML(q.stem)}</div>
+      <div class="grid gap-3">${choicesHTML}</div>
+      <div class="flex gap-3 mt-3">
+        <button class="btn" id="markBtn">採点</button>
+        <button class="btn-outline" id="expBtn">解説を表示</button>
+      </div>
+      <div id="resultBox" class="mt-3"></div>
+      <div id="explainBox" class="mt-3 muted hidden"></div>
+    </div>
+  `;
+  stage.querySelectorAll('input[name="mcq"]').forEach(r=>{
+    r.addEventListener("change", e => state.answers[key] = Number(e.target.value));
+  });
+  stage.querySelector("#markBtn").addEventListener("click", ()=>{
+    const v = state.answers[key];
+    if (v==null){ alert("答えを選んでください"); return; }
+    const ok = !!q.choices?.[v]?.isCorrect;
+    stage.querySelector("#resultBox").innerHTML =
+      ok ? `<div class="ok font-semibold">◎ 正解</div>` : `<div class="bad font-semibold">× 不正解</div>`;
+  });
+  stage.querySelector("#expBtn").addEventListener("click", ()=>{
+    const box = stage.querySelector("#explainBox");
+    box.classList.toggle("hidden");
+    box.innerHTML = `<div class="divider"></div><div class="mono whitespace-pre-wrap">${escapeHTML(q.explain||"（解説は準備中）")}</div>`;
+  });
+}
+
+/* util */
+function escapeHTML(s=""){return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]))}
