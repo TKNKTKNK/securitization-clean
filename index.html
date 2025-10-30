@@ -3,111 +3,121 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="robots" content="noindex, nofollow" />
   <title>証券化マスター</title>
 
+  <!-- React -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-white text-black">
-  <div id="root" class="mx-auto max-w-3xl px-4 py-5"></div>
+
+  <style>
+    body {
+      background-color: #ffffff;
+      color: #111;
+      -webkit-font-smoothing: antialiased;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "Noto Sans JP", sans-serif;
+    }
+    button {
+      background: #f3f3f3;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 6px 14px;
+      margin: 4px;
+    }
+    button:hover { background: #e5e5e5; }
+    .choice-btn {
+      font-size: 18px;
+      width: 100%;
+      text-align: left;
+      padding: 10px 14px;
+      margin-bottom: 6px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fafafa;
+    }
+    .choice-btn.correct { background: #d1fad1; }
+    .choice-btn.wrong { background: #fdd; }
+  </style>
 
   <script>
-  const YEARS = [2024, 2023];
-  const YEAR_KEY = "securitization-year-v1";
-
-  const LS_KEY = (year)=>`securitization-progress-v1:${year}`;
-  const saveState = (y,s)=>localStorage.setItem(LS_KEY(y), JSON.stringify(s));
-  const loadState = (y)=>{
-    try { return JSON.parse(localStorage.getItem(LS_KEY(y))||"null"); }
-    catch { return null; }
-  };
-
-  async function tryFetchJson(path){
-    try{
-      const res = await fetch(path, { cache:"no-store" });
-      if(!res.ok) throw new Error(res.status);
-      return await res.json();
-    }catch{ throw new Error("fetch-failed"); }
+  // —— 日本語テキスト整形関数（PDFの崩れ修正）——
+  function normalizeJP(s){
+    if(!s) return "";
+    let t = s;
+    t = t.replace(/\u3000/g, " ");            // 全角→半角スペース
+    t = t.replace(/\s*\n+\s*/g, " ");         // 改行→スペース
+    t = t.replace(/\s{2,}/g, " ");            // 連続スペース→1つ
+    t = t.replace(/-\s+/g, "");               // 行末ハイフン除去
+    t = t.replace(/・\s+/g, "・");
+    t = t.replace(/，/g, "、").replace(/．/g, "。");
+    t = t.replace(/（\d+）/g, "");
+    t = t.replace(/\bP(?:age)?\s*\d+\b/ig, "");
+    t = t.replace(/\s*第?\d+問\s*/g, " ");
+    return t.trim();
   }
+  </script>
+</head>
 
-  async function loadQuestions(year){
-    const data = await tryFetchJson(`/${year}.json`);
-    if(!Array.isArray(data) || !data.length) throw new Error("format");
-    return data;
-  }
+<body class="p-4">
+  <div id="root"></div>
 
-  const h = React.createElement;
-  function btn(label,onClick,disabled=false){
-    const cls="px-4 py-2 border rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-40";
-    return h("button",{className:cls,onClick,disabled},label);
-  }
-  function scrollTop(){ window.scrollTo({top:0,behavior:"smooth"}); }
+  <script type="module">
+    const { useState, useEffect } = React;
 
-  function App(){
-    const savedYear = Number(localStorage.getItem(YEAR_KEY)) || YEARS[0];
-    const [year,setYear]=React.useState(savedYear);
-    const [all,setAll]=React.useState(null);
-    const [i,setI]=React.useState(0);
-    const [k,setK]=React.useState(0);
-    const [show,setShow]=React.useState(false);
-    const [err,setErr]=React.useState("");
+    function App(){
+      const [data,setData] = useState([]);
+      const [idx,setIdx] = useState(0);
+      const [showAnswer,setShowAnswer] = useState(false);
+      const [selected,setSelected] = useState(null);
 
-    React.useEffect(()=>{
-      localStorage.setItem(YEAR_KEY,year);
-      setErr("");setAll(null);setI(0);setK(0);setShow(false);
-      loadQuestions(year)
-        .then(q=>{setAll(q);})
-        .catch(()=>setErr(`/${year}.json が見つかりません`));
-    },[year]);
+      useEffect(()=>{
+        fetch("./2024.json?v=clean2024")
+          .then(r=>r.json())
+          .then(setData)
+          .catch(()=>alert("データの読み込みに失敗しました"));
+      },[]);
 
-    if(err) return h("div",{className:"p-5 text-red-600"},err);
-    if(!all) return h("div",{className:"p-5"},"読み込み中...");
+      if(data.length===0) return React.createElement("div", {className:"text-center mt-20"}, "読み込み中…");
 
-    const q=all[i], c=q.choices[k];
+      const q = data[idx];
 
-    const yearSel=h("select",{value:year,onChange:e=>setYear(Number(e.target.value)),
-      className:"border rounded-lg px-2 py-1 bg-white"},
-      YEARS.map(y=>h("option",{key:y,value:y},y))
-    );
+      function handleChoice(c){
+        setSelected(c);
+        setShowAnswer(true);
+      }
 
-    function next(){ setShow(false); setK(k+1<q.choices.length?k+1:0);
-      if(k+1>=q.choices.length) setI((i+1)%all.length);
-      scrollTop();
-    }
-    function back(){ setShow(false);
-      if(k>0) setK(k-1);
-      else{const pi=(i-1+all.length)%all.length; setI(pi); setK(all[pi].choices.length-1);}
-      scrollTop();
-    }
-    function judge(ans){ setShow(true); }
+      function next(){
+        setShowAnswer(false);
+        setSelected(null);
+        setIdx((i)=>(i+1)%data.length);
+      }
 
-    const feedback=show && h("div",{className:"mt-3 border p-3 rounded-xl"},
-      h("div",{className:c.isTrue?"text-green-600":"text-red-600"},
-        `正解：${c.isTrue?"○（正しい）":"×（誤り）"}`),
-      c.explain && h("p",{className:"mt-1 text-sm text-neutral-700"},c.explain),
-      btn("次へ",next)
-    );
-
-    return h("div",{className:"p-5"},
-      h("div",{className:"flex gap-3 mb-4 items-center"},h("span","年度："),yearSel),
-      h("div",{className:"text-sm text-neutral-500 mb-2"},`${q.section} / ${i+1}/${all.length}`),
-      h("div",{className:"text-[18px] mb-4"},q.stem),
-      h("div",{className:"border rounded-2xl p-4"},
-        h("div",{className:"text-[18px]"},`${c.id}. ${c.text}`),
-        h("div",{className:"flex gap-2 mt-3"},
-          btn("○ 正しい",()=>judge(true),show),
-          btn("× 誤り",()=>judge(false),show)
+      return React.createElement("div",{className:"max-w-2xl mx-auto"},
+        React.createElement("h1",{className:"text-2xl font-bold mb-4 text-center"},"証券化マスター 2024"),
+        React.createElement("div",{className:"text-lg mb-3"},normalizeJP(q.stem)),
+        q.choices.map((c)=>
+          React.createElement("button",{
+            key:c.id,
+            onClick:()=>handleChoice(c),
+            className:`choice-btn ${showAnswer ? (c.isTrue?"correct": (selected===c?"wrong":"")) : ""}`
+          },`${c.id}. ${normalizeJP(c.text)}`)
         ),
-        feedback
-      ),
-      h("div",{className:"flex gap-2 mt-4"},
-        btn("戻る",back),btn("次へ",next)
-      )
-    );
-  }
+        showAnswer && React.createElement("div",{className:"mt-4 p-3 border rounded-lg"},
+          React.createElement("p",{className:"text-sm text-red-600 mb-1"},"【解説】"),
+          React.createElement("p",{className:"text-base leading-relaxed"}, q.choices.filter(c=>c.isTrue).map(c=>`${c.id}: 正しい`).join("、 ") || "該当なし"),
+          React.createElement("p",{className:"text-sm mt-2 text-gray-600"},normalizeJP(q.explain||""))
+        ),
+        React.createElement("div",{className:"mt-6 text-center"},
+          React.createElement("button",{onClick:next},"次の問題へ ▶")
+        )
+      );
+    }
 
-  ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
   </script>
 </body>
 </html>
