@@ -4,31 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#ffffff" />
-  <meta name="robots" content="noindex, nofollow" />
   <title>証券化マスター 2020–2024 練習</title>
-  <!-- Tailwind CDN（既に読み込んでいるなら重複OK） -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-white text-black">
-  <div class="max-w-4xl mx-auto p-4">
-    <h1 class="text-2xl font-bold mb-4">証券化マスター 2020–2024 練習</h1>
-
-    <!-- ヘッダー操作 -->
-    <div class="flex items-center gap-3 mb-4">
-      <label class="text-sm">年度:</label>
-      <select id="yearSelect" class="border rounded px-2 py-1"></select>
-
-      <div id="counter" class="text-sm px-2 py-1 rounded bg-gray-100">-/-</div>
-
-      <button id="prevBtn" class="px-3 py-2 rounded bg-gray-200">戻る</button>
-      <button id="nextBtn" class="px-3 py-2 rounded bg-blue-600 text-white">次へ</button>
-    </div>
-
-    <!-- 問題表示領域 -->
-    <div id="qbox" class="rounded-xl border p-4"></div>
-  </div>
-
-  <!-- v=パラメータでキャッシュ回避可能（例：?v=tfm1） -->
-  <script type="module" src="./app.js?v=tfm1"></script>
+  <div id="root" class="max-w-5xl mx-auto p-4"></div>
+  <script type="module" src="./app.js?v=tfmulti_001"></script>
 </body>
 </html>
