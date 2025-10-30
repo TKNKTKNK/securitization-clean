@@ -1,26 +1,41 @@
-{
-  "year": 2024,
-  "questions": [
-    {
-      "id": "2024-AM-001",
-      "type": "tf-multi",
-      "stem": "次の記述（イ〜ニ）について、正誤を判定せよ。",
-      "items": [
-        { "label": "イ", "text": "不動産証券化におけるSPCは資産の流動化に用いられる。", "answer": true,  "explain": "SPCは切り離しと資金調達の器として用いられる。" },
-        { "label": "ロ", "text": "証券化商品は必ず劣後・優先の二層構造を取る。",        "answer": false, "explain": "必須ではない。単層や多段もある。" },
-        { "label": "ハ", "text": "PM・AMは同一主体でなければならない。",                  "answer": false, "explain": "役割分担は案件により異なる。" },
-        { "label": "ニ", "text": "キャッシュフロー配分は契約で定められる。",                "answer": true,  "explain": "優先劣後やタイムトランシェ等は契約条件。" }
-      ],
-      "explain": "各肢の根拠を確認し、誤っている箇所を特定できるように。"
-    },
+[
+  {
+    "type": "tf-multi",
+    "year": 2024,
+    "stem": "次の記述（ア〜エ）について、正誤を判定せよ。",
+    "items": [
+      {
+        "label": "ア",
+        "text": "ベストメント(divestment)は〜〜〜である。",
+        "answer": false,
+        "explain": "divestment は事業の切り離し…。"
+      },
+      {
+        "label": "イ",
+        "text": "オンバランス賃貸不動産の〜〜〜である。",
+        "answer": true,
+        "explain": "オンバランスでは…"
+      },
+      {
+        "label": "ウ",
+        "text": "現代日本では、不動産証券化は〜〜〜である。",
+        "answer": false,
+        "explain": "目的は資金調達だけでなく…"
+      },
+      {
+        "label": "エ",
+        "text": "その他の記述…",
+        "answer": true
+      }
+    ],
+    "summary": "（全肢に回答すると総合判定が出ます）"
+  },
 
-    {
-      "id": "2024-AM-002",
-      "type": "tf",
-      "stem": "次の記述について、正誤を判定せよ。",
-      "text": "J-REITの利益分配は税制上の要件を満たせば損金算入が可能である。",
-      "answer": true,
-      "explain": "投資法人の要件を満たすと分配金の損金算入（実質パススルー）が可能。"
-    }
-  ]
-}
+  {
+    "type": "tf",
+    "year": 2024,
+    "stem": "○○は××である。",
+    "answer": true,
+    "explain": "根拠…"
+  }
+]
